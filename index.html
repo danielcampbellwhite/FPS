@@ -744,22 +744,26 @@ const ZOMBIE_EYE_MAT   = new THREE.MeshBasicMaterial({ color: 0xff4040 });
 
 function makeZombieMesh() {
   const group = new THREE.Group();
+  // Per-zombie material clones so hit-flash emissive doesn't bleed across zombies.
+  const skin  = ZOMBIE_MAT_SKIN.clone();
+  const cloth = ZOMBIE_MAT_CLOTH.clone();
+  const dark  = ZOMBIE_MAT_DARK.clone();
   // Origin at feet (y = 0).
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.42, 0.42), ZOMBIE_MAT_SKIN);
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.42, 0.42), skin);
   head.position.y = 1.78;
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.9, 0.42), ZOMBIE_MAT_CLOTH);
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.9, 0.42), cloth);
   torso.position.y = 1.15;
-  const armL = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.7, 0.18), ZOMBIE_MAT_SKIN);
+  const armL = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.7, 0.18), skin);
   armL.position.set(-0.45, 1.30, -0.20);
   armL.geometry.translate(0, -0.3, 0); // pivot at shoulder
-  const armR = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.7, 0.18), ZOMBIE_MAT_SKIN);
+  const armR = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.7, 0.18), skin);
   armR.position.set( 0.45, 1.30, -0.20);
   armR.geometry.translate(0, -0.3, 0);
   armL.rotation.x = -1.0; armR.rotation.x = -1.0;
-  const legL = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.7, 0.22), ZOMBIE_MAT_DARK);
+  const legL = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.7, 0.22), dark);
   legL.position.set(-0.18, 0.35, 0);
   legL.geometry.translate(0, -0.35, 0); // pivot at hip
-  const legR = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.7, 0.22), ZOMBIE_MAT_DARK);
+  const legR = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.7, 0.22), dark);
   legR.position.set( 0.18, 0.35, 0);
   legR.geometry.translate(0, -0.35, 0);
   const eyeL = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.04), ZOMBIE_EYE_MAT);
@@ -784,6 +788,7 @@ function addZombie(z) {
     hp: z.hp, maxHp: z.hp, alive: true, attacking: !!z.attacking,
     animPhase: Math.random() * Math.PI * 2,
     deathT: 0,
+    hitFlash: 0,
   });
 }
 function removeZombie(id) {
@@ -1016,11 +1021,14 @@ function handleMessage(m) {
       const z = zombies.get(m.zombie);
       if (z) {
         z.hp = m.hp;
+        z.hitFlash = 1;
         if (m.by === myId) playHitConfirm();
       }
       break;
     }
     case 'zkill': {
+      const z = zombies.get(m.zombie);
+      if (z) z.hitFlash = 1;
       killZombie(m.zombie);
       const ps = playerState.get(m.killer); if (ps) ps.score = m.killerScore;
       if (m.killer === myId) playHitConfirm();
@@ -1278,6 +1286,20 @@ function updateZombies(dt) {
 
       // Slight head bob
       z.head.position.y = 1.78 + Math.sin(z.animPhase * 2) * 0.02 * movePulse;
+
+      // Hit flash: red emissive on cloned materials, decays in ~150ms.
+      if (z.hitFlash > 0) {
+        const i = z.hitFlash * 0.9;
+        z.head.material.emissive.setHex(0xff2020); z.head.material.emissiveIntensity = i;
+        z.torso.material.emissive.setHex(0xff2020); z.torso.material.emissiveIntensity = i;
+        z.legL.material.emissive.setHex(0xff2020); z.legL.material.emissiveIntensity = i;
+        z.hitFlash = Math.max(0, z.hitFlash - dt * 6);
+        if (z.hitFlash === 0) {
+          z.head.material.emissiveIntensity = 0;
+          z.torso.material.emissiveIntensity = 0;
+          z.legL.material.emissiveIntensity = 0;
+        }
+      }
     } else {
       // Death: fall over and fade out.
       z.deathT += dt;
